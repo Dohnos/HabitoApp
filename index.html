@@ -9,45 +9,34 @@
   {
     "imports": {
       "react": "https://esm.sh/react@18.2.0",
-      "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-      "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.2"
+      "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
     }
   }
   </script>
   <style>
-    body { margin: 0; padding: 0; }
-    /* Podpora pro notch na iOS */
-    :root {
-      --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
-    }
-    .pb-safe {
-      padding-bottom: var(--safe-area-inset-bottom);
-    }
-    /* Styly pro světlý vzhled */
+    body { margin: 0; padding: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    :root { --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px); }
+    .pb-safe { padding-bottom: var(--safe-area-inset-bottom); }
     .light {
-        --bg-primary: #f3f4f6; /* gray-100 */
-        --bg-secondary: #ffffff; /* white */
-        --bg-tertiary: #e5e7eb; /* gray-200 */
-        --text-primary: #111827; /* gray-900 */
-        --text-secondary: #6b7280; /* gray-500 */
-        --text-tertiary: #9ca3af; /* gray-400 */
-        --accent: #7c3aed; /* purple-600 */
-        --accent-light: #c4b5fd; /* purple-300 */
-        --border-color: #d1d5db; /* gray-300 */
+        --bg-primary: #f0f2f5; /* Off-white */
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #e4e6eb;
+        --text-primary: #050505; /* Pure black */
+        --text-secondary: #65676b;
+        --text-tertiary: #8a8d91;
+        --accent: #0052ff; /* Strong Blue */
+        --border-color: #ced0d4;
     }
-    /* Styly pro tmavý vzhled (výchozí) */
     .dark {
         --bg-primary: #000000;
-        --bg-secondary: #1f2937; /* gray-800 */
-        --bg-tertiary: #374151; /* gray-700 */
-        --text-primary: #ffffff;
-        --text-secondary: #9ca3af; /* gray-400 */
-        --text-tertiary: #6b7280; /* gray-500 */
-        --accent: #8b5cf6; /* purple-500 */
-        --accent-light: #a78bfa; /* purple-400 */
-        --border-color: #4b5563; /* gray-600 */
+        --bg-secondary: #18191a;
+        --bg-tertiary: #3a3b3c;
+        --text-primary: #e4e6eb;
+        --text-secondary: #b0b3b8;
+        --text-tertiary: #8a8d91;
+        --accent: #2374e1; /* Vibrant Blue */
+        --border-color: #3a3b3c;
     }
-    /* Aplikace proměnných */
     .theme-bg-primary { background-color: var(--bg-primary); }
     .theme-bg-secondary { background-color: var(--bg-secondary); }
     .theme-bg-tertiary { background-color: var(--bg-tertiary); }
@@ -57,19 +46,43 @@
     .theme-accent { color: var(--accent); }
     .theme-accent-bg { background-color: var(--accent); }
     .theme-border { border-color: var(--border-color); }
+
+    /* For calendar heatmap tooltip */
+    [data-tooltip] { position: relative; cursor: pointer; }
+    [data-tooltip]:before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%) translateY(-8px);
+        padding: 4px 8px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 6px;
+        white-space: nowrap;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s, visibility 0.2s;
+        z-index: 10;
+    }
+    [data-tooltip]:hover:before {
+        opacity: 1;
+        visibility: visible;
+    }
   </style>
 </head>
 <body>
   <div id="root"></div>
-  <canvas id="confetti-canvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999;"></canvas>
 
   <script type="module">
     import React, { useState, useEffect, useMemo, useCallback } from 'react';
     import { createRoot } from 'react-dom/client';
-    import confetti from 'canvas-confetti';
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-    import { getDatabase, ref, set, onValue, remove, push, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+    import { getDatabase, ref, onValue, update, push, remove } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
+    // --- FIREBASE CONFIG ---
     const firebaseConfig = {
       apiKey: "AIzaSyA2ecBNRLduifcNl2wYbA06CZ3hb-w1194",
       authDomain: "habittracker-f0dc5.firebaseapp.com",
@@ -79,448 +92,393 @@
       messagingSenderId: "571032128665",
       appId: "1:571032128665:web:ab6fafd6ced02d689abc08"
     };
-
-    let app, database;
+    let database;
     try {
-      app = initializeApp(firebaseConfig);
+      const app = initializeApp(firebaseConfig);
       database = getDatabase(app);
-    } catch (error) {
-      console.error("Firebase není nakonfigurován", error);
-    }
+    } catch (error) { console.error("Firebase init error:", error); }
 
-    const EMOJI_ICONS = ['🥕', '🍎', '🏃', '📚', '💧', '🧘', '💪', '🎯', '✨', '🌟', '🎨', '🎵', '🏋️', '🚴', '🏊', '⚽', '🎮', '📝', '💻', '📱', '☕', '🍵', '🛏️', '🧹', '🪥', '🚿', '🌱', '🌸', '🌞', '🌙'];
-    const COLORS = ['#FF6B4A', '#FF9F4A', '#FFD84A', '#4ADE80', '#4AB8E8', '#4A7FFF', '#7B68EE', '#DA4AFF', '#FF4A8C', '#C4A77D', '#9CA3AF', '#FFFFFF'];
-    const DAYS = ['po', 'út', 'st', 'čt', 'pá', 'so', 'ne'];
-    
-    const MOTIVATIONAL_QUOTES = [
-        "Skvělý začátek dne!",
-        "Každý krok se počítá.",
-        "Dnes je den pro úspěch!",
-        "Jste na správné cestě.",
-        "Pokračujte, jde vám to skvěle!",
-        "Všechny návyky splněny, úžasné!"
-    ];
+    // --- CONSTANTS ---
+    const EMOJI_ICONS = ['🏃', '📚', '💧', '🧘', '💪', '🎯', '✨', '🏋️', '🚴', '🏊', '📝', '💻', '☕', '🍵', '🌱', '🌞'];
+    const COLORS = ['#0052ff', '#4ade80', '#ff9f4a', '#ff6b4a', '#4ab8e8', '#da4aff'];
 
-    // --- Helper Functions ---
+    // --- DATE & LOGIC HELPERS ---
     const getDateString = (date = new Date()) => date.toISOString().split('T')[0];
-
-    const getWeekNumber = (d) => {
+    const getWeekId = (d) => {
         d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
         d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
         const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        return `${d.getUTCFullYear()}-W${Math.ceil((((d - yearStart) / 86400000) + 1) / 7)}`;
     };
-
     const getMonthId = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const getWeekId = (date = new Date()) => `${date.getFullYear()}-W${String(getWeekNumber(date)).padStart(2, '0')}`;
-    
-    // --- Core Habit Logic ---
-    const getProgressForDate = (habit, date) => habit.progress?.[getDateString(date)] || 0;
-
-    const getAggregatedProgress = (habit) => {
+    const getAggregatedProgress = (habit, date = new Date()) => {
         if (!habit.progress) return 0;
-        const now = new Date();
-        
-        if (habit.frequency === 'weekly') {
-            const weekId = getWeekId(now);
-            return Object.entries(habit.progress)
-                .filter(([dateStr]) => getWeekId(new Date(dateStr)) === weekId)
-                .reduce((sum, [, val]) => sum + val, 0);
-        }
-        if (habit.frequency === 'monthly') {
-            const monthId = getMonthId(now);
-            return Object.entries(habit.progress)
-                .filter(([dateStr]) => getMonthId(new Date(dateStr)) === monthId)
-                .reduce((sum, [, val]) => sum + val, 0);
-        }
-        // Daily
-        return getProgressForDate(habit, now);
+        if (habit.frequency === 'weekly') return Object.entries(habit.progress).filter(([d]) => getWeekId(new Date(d)) === getWeekId(date)).reduce((sum, [, val]) => sum + val, 0);
+        if (habit.frequency === 'monthly') return Object.entries(habit.progress).filter(([d]) => getMonthId(new Date(d)) === getMonthId(date)).reduce((sum, [, val]) => sum + val, 0);
+        return habit.progress[getDateString(date)] || 0;
     };
 
-    const getProgressPercentage = (habit) => {
-        const current = getAggregatedProgress(habit);
-        return Math.min(Math.round((current / habit.goal) * 100), 100);
-    };
-
-    // --- Main App Component ---
+    // --- MAIN APP COMPONENT ---
     function HabitsTracker() {
       const [habits, setHabits] = useState([]);
-      const [archivedHabits, setArchivedHabits] = useState([]);
+      const [archived, setArchived] = useState([]);
       const [view, setView] = useState('home');
-      const [editingHabit, setEditingHabit] = useState(null);
-      const [theme, setTheme] = useState(localStorage.getItem('habito-theme') || 'dark');
-
-      const myConfetti = confetti.create(document.getElementById('confetti-canvas'), {
-          resize: true,
-          useWorker: true
-      });
+      const [modal, setModal] = useState(null); // 'add', 'edit', 'history'
+      const [selectedHabit, setSelectedHabit] = useState(null);
+      const [theme, setTheme] = useState(() => localStorage.getItem('habito-theme') || 'dark');
 
       useEffect(() => {
-        document.body.className = `${theme} theme-bg-primary theme-text-primary`;
-        localStorage.setItem('habito-theme', theme);
+          document.documentElement.className = theme;
+          localStorage.setItem('habito-theme', theme);
       }, [theme]);
       
       useEffect(() => {
-        if (!database) return;
-        const habitsRef = ref(database, 'habits');
-        return onValue(habitsRef, (snapshot) => {
-          const data = snapshot.val() || {};
-          const allHabits = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-          setHabits(allHabits.filter(h => !h.archived));
-          setArchivedHabits(allHabits.filter(h => h.archived));
-        });
-      }, []);
-
-      // Check for all daily habits completed
-      useEffect(() => {
-        const dailyHabits = habits.filter(h => h.frequency === 'daily');
-        if (dailyHabits.length > 0) {
-            const allDailyCompleted = dailyHabits.every(h => getProgressForDate(h, new Date()) >= h.goal);
-            if (allDailyCompleted) {
-                myConfetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
-            }
-        }
-      }, [habits]);
-
-
-      // --- Database Operations (memoized) ---
-      const handleHabitUpdate = useCallback(async (habitId, updates) => {
-        if (!database) return;
-        await update(ref(database, `habits/${habitId}`), updates);
-      }, []);
-
-      const incrementHabit = useCallback(async (habit) => {
-        const todayStr = getDateString();
-        const currentProgress = habit.progress?.[todayStr] || 0;
-        const newProgress = { ...habit.progress, [todayStr]: currentProgress + 1 };
-        await handleHabitUpdate(habit.id, { progress: newProgress });
-      }, [handleHabitUpdate]);
-
-      const decrementHabit = useCallback(async (habit) => {
-        const todayStr = getDateString();
-        const currentProgress = habit.progress?.[todayStr] || 0;
-        if (currentProgress > 0) {
-          const newProgress = { ...habit.progress, [todayStr]: currentProgress - 1 };
-          await handleHabitUpdate(habit.id, { progress: newProgress });
-        }
-      }, [handleHabitUpdate]);
-      
-      const onAddHabit = useCallback(async (newHabitData) => {
-        if (!database) return;
-        const newHabitRef = push(ref(database, 'habits'));
-        await set(newHabitRef, {
-            ...newHabitData,
-            progress: {},
-            archived: false,
-            createdAt: new Date().toISOString()
-        });
-        setView('home');
-      }, []);
-
-      const onUpdateHabit = useCallback(async (habitId, updatedData) => {
-        await handleHabitUpdate(habitId, updatedData);
-        setEditingHabit(null);
-      }, [handleHabitUpdate]);
-      
-      const onDeleteHabit = useCallback(async (habitId) => {
-        if (!database || !confirm('Opravdu chcete tento návyk smazat? Tato akce je nevratná.')) return;
-        await remove(ref(database, `habits/${habitId}`));
-      }, []);
-
-
-      // --- Render Logic ---
-      const renderView = () => {
-        switch(view) {
-          case 'add': return React.createElement(AddHabitView, { onAddHabit, onBack: () => setView('home') });
-          case 'edit': return React.createElement(AddHabitView, { 
-              habit: editingHabit, 
-              onUpdateHabit: (data) => onUpdateHabit(editingHabit.id, data), 
-              onBack: () => setEditingHabit(null) 
+          if (!database) return;
+          const habitsRef = ref(database, 'habits');
+          return onValue(habitsRef, (snapshot) => {
+              const data = snapshot.val() || {};
+              const all = Object.entries(data).map(([id, val]) => ({ id, ...val }));
+              setHabits(all.filter(h => !h.archived));
+              setArchived(all.filter(h => h.archived));
           });
-          case 'history': return React.createElement(HistoryView, { habits, archivedHabits, handleHabitUpdate, onDeleteHabit });
-          case 'settings': return React.createElement(SettingsView, { theme, setTheme, onBack: () => setView('home') });
-          default: return React.createElement(HomeView, { habits, incrementHabit, decrementHabit, setEditingHabit, setView });
+      }, []);
+      
+      const dbAction = useCallback(async (action, payload) => {
+          if (!database) return;
+          try {
+              switch (action) {
+                  case 'ADD':
+                      await push(ref(database, 'habits'), { ...payload, progress: {}, archived: false, createdAt: new Date().toISOString() });
+                      break;
+                  case 'UPDATE':
+                      await update(ref(database, `habits/${payload.id}`), payload.data);
+                      break;
+                  case 'PROGRESS':
+                      await update(ref(database, `habits/${payload.id}/progress`), payload.progress);
+                      break;
+                  case 'DELETE':
+                      if (confirm('Opravdu chcete tento návyk smazat? Tato akce je nevratná.')) {
+                          await remove(ref(database, `habits/${payload.id}`));
+                      }
+                      break;
+              }
+          } catch (error) { console.error("Database action failed:", action, error); }
+      }, []);
+
+      const openModal = (type, habit = null) => {
+          setSelectedHabit(habit);
+          setModal(type);
+      };
+
+      const renderModal = () => {
+        if (!modal) return null;
+        switch(modal) {
+          case 'add': return React.createElement(HabitFormModal, { onClose: () => setModal(null), dbAction });
+          case 'edit': return React.createElement(HabitFormModal, { onClose: () => setModal(null), dbAction, habit: selectedHabit });
+          case 'history': return React.createElement(HistoryModal, { onClose: () => setModal(null), habit: selectedHabit });
+          default: return null;
         }
       };
 
-      return React.createElement('div', { className: 'min-h-screen theme-bg-primary' },
-        React.createElement('main', { className: 'max-w-2xl mx-auto p-4 pb-24' }, renderView()),
-        React.createElement(BottomNav, { view, setView })
+      return React.createElement('div', { className: 'min-h-screen theme-bg-primary theme-text-primary' },
+        React.createElement('main', { className: 'max-w-xl mx-auto p-4 pb-24' },
+            React.createElement(HomeView, { habits, dbAction, openModal, setView })
+        ),
+        React.createElement(BottomNav, { view, setView }),
+        renderModal()
       );
     }
     
     // --- VIEWS & COMPONENTS ---
+    function HomeView({ habits, dbAction, openModal, setView }) {
+      const totalProgress = useMemo(() => {
+          if (habits.length === 0) return 0;
+          const completed = habits.filter(h => getAggregatedProgress(h) >= h.goal).length;
+          return Math.round((completed / habits.length) * 100);
+      }, [habits]);
 
-    function HomeView({ habits, incrementHabit, decrementHabit, setEditingHabit, setView }) {
-        const dailyHabits = useMemo(() => habits.filter(h => h.frequency === 'daily'), [habits]);
-        const weeklyHabits = useMemo(() => habits.filter(h => h.frequency === 'weekly'), [habits]);
-        const monthlyHabits = useMemo(() => habits.filter(h => h.frequency === 'monthly'), [habits]);
-
-        const totalProgress = useMemo(() => {
-            if (habits.length === 0) return 0;
-            const completed = habits.filter(h => getAggregatedProgress(h) >= h.goal).length;
-            return Math.round((completed / habits.length) * 100);
-        }, [habits]);
-
-        const quote = useMemo(() => {
-            if (totalProgress === 100) return MOTIVATIONAL_QUOTES[5];
-            const index = Math.floor((totalProgress / 100) * (MOTIVATIONAL_QUOTES.length - 1));
-            return MOTIVATIONAL_QUOTES[index];
-        }, [totalProgress]);
-
-        return React.createElement(React.Fragment, null,
-            React.createElement('header', { className: 'flex justify-between items-center mb-6' },
-                React.createElement('h1', { className: 'text-2xl font-bold theme-text-primary' }, 'HABITO'),
-                React.createElement('button', {
-                    onClick: () => setView('add'),
-                    className: 'w-12 h-12 theme-bg-secondary rounded-full flex items-center justify-center text-2xl theme-text-primary shadow-md'
-                }, '+')
-            ),
-
-            React.createElement('div', { className: 'flex justify-center items-center flex-col text-center mb-8 p-6 theme-bg-secondary rounded-3xl' },
-              React.createElement(ProgressCircle, { percentage: totalProgress }),
-              React.createElement('p', { className: 'mt-4 font-semibold theme-text-primary' }, quote)
-            ),
-            
-            React.createElement(HabitList, { title: 'Denní cíle', habits: dailyHabits, incrementHabit, decrementHabit, setEditingHabit }),
-            React.createElement(HabitList, { title: 'Týdenní cíle', habits: weeklyHabits, incrementHabit, decrementHabit, setEditingHabit }),
-            React.createElement(HabitList, { title: 'Měsíční cíle', habits: monthlyHabits, incrementHabit, decrementHabit, setEditingHabit })
-        );
+      return React.createElement(React.Fragment, null,
+          React.createElement('header', { className: 'flex justify-between items-center mb-6' },
+              React.createElement('h1', { className: 'text-3xl font-bold' }, 'Návyky'),
+              React.createElement('button', {
+                  onClick: () => openModal('add'),
+                  className: 'w-10 h-10 theme-bg-secondary rounded-lg flex items-center justify-center text-2xl font-semibold theme-text-primary shadow'
+              }, '+')
+          ),
+          React.createElement('div', { className: 'text-center mb-8 p-6 theme-bg-secondary rounded-xl' },
+            React.createElement(ProgressCircle, { percentage: totalProgress }),
+            React.createElement('p', { className: 'mt-4 font-medium theme-text-secondary' }, totalProgress === 100 ? "Vše splněno. Skvělá práce!" : "Pokračujte, jste na správné cestě.")
+          ),
+          React.createElement('div', { className: 'space-y-3' },
+            habits.length > 0
+                ? habits.map(habit => React.createElement(HabitItem, { key: habit.id, habit, dbAction, openModal }))
+                : React.createElement('div', { className: 'text-center py-10 theme-bg-secondary rounded-xl' },
+                    React.createElement('p', { className: 'font-medium' }, 'Žádné aktivní návyky.'),
+                    React.createElement('p', { className: 'text-sm theme-text-secondary mt-1' }, 'Klikněte na + pro přidání prvního.')
+                )
+          )
+      );
     }
     
-    function HabitList({ title, habits, ...props }) {
-        if (habits.length === 0) return null;
-        return React.createElement('div', { className: 'mb-8' },
-            React.createElement('h2', { className: 'text-xl font-bold mb-4 theme-text-primary' }, title),
-            React.createElement('div', { className: 'space-y-3' },
-                habits.map(habit => React.createElement(HabitItem, { key: habit.id, habit, ...props }))
-            )
-        );
-    }
+    function HabitItem({ habit, dbAction, openModal }) {
+        const [showMenu, setShowMenu] = useState(false);
 
-    function HabitItem({ habit, incrementHabit, decrementHabit, setEditingHabit }) {
+        const handleProgress = (increment) => {
+            const todayStr = getDateString();
+            const current = habit.progress?.[todayStr] || 0;
+            const newProgress = Math.max(0, current + increment);
+            dbAction('PROGRESS', { id: habit.id, progress: { ...habit.progress, [todayStr]: newProgress } });
+        };
+
         const progress = getAggregatedProgress(habit);
-        const percentage = getProgressPercentage(habit);
-        const isCompleted = progress >= habit.goal;
+        const percentage = Math.min(Math.round((progress / habit.goal) * 100), 100);
 
-        return React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4 flex items-center justify-between transition-all duration-300' },
-            React.createElement('div', { className: 'flex items-center space-x-4 flex-1' },
-                React.createElement('div', { 
-                    className: 'w-14 h-14 rounded-full flex items-center justify-center text-2xl',
-                    style: { backgroundColor: habit.color + '33' }
+        return React.createElement('div', { className: 'theme-bg-secondary rounded-xl p-3.5 flex items-center justify-between' },
+            React.createElement('div', { className: 'flex items-center space-x-3 flex-1' },
+                React.createElement('button', {
+                    onClick: () => handleProgress(1),
+                    className: 'w-12 h-12 rounded-lg flex items-center justify-center text-2xl',
+                    style: { backgroundColor: habit.color + '20' }
                 }, habit.icon),
                 React.createElement('div', { className: 'flex-1' },
-                    React.createElement('div', { className: `font-semibold theme-text-primary ${isCompleted ? 'line-through theme-text-tertiary' : ''}` }, habit.name),
-                    React.createElement('div', { className: 'text-sm theme-text-secondary' }, `Cíl: ${progress} / ${habit.goal}`)
-                )
-            ),
-            React.createElement('div', { className: 'flex items-center space-x-2' },
-              React.createElement('button', { onClick: () => setEditingHabit(habit), className: 'w-8 h-8 flex items-center justify-center theme-bg-tertiary rounded-full theme-text-secondary' }, '✎'),
-              React.createElement('button', { onClick: () => decrementHabit(habit), className: 'w-10 h-10 flex items-center justify-center theme-bg-tertiary rounded-full font-bold theme-text-primary' }, '-'),
-              React.createElement(ProgressCircle, { 
-                  percentage: percentage, 
-                  color: habit.color, 
-                  size: 64,
-                  children: React.createElement('button', {
-                    onClick: () => incrementHabit(habit),
-                    className: 'absolute inset-0 flex items-center justify-center text-xl font-bold theme-text-primary'
-                  }, progress)
-              })
-            )
-        );
-    }
-    
-    function ProgressCircle({ percentage, color = '#8b5cf6', size = 160, strokeWidth = 14, children }) {
-        const radius = (size / 2) - strokeWidth;
-        const circumference = 2 * Math.PI * radius;
-        const offset = circumference * (1 - percentage / 100);
-        
-        return React.createElement('div', { className: 'relative', style: { width: size, height: size } },
-            React.createElement('svg', { className: 'transform -rotate-90', width: size, height: size },
-                React.createElement('circle', { cx: size/2, cy: size/2, r: radius, stroke: 'var(--bg-tertiary)', strokeWidth, fill: 'none' }),
-                React.createElement('circle', { 
-                    cx: size/2, cy: size/2, r: radius,
-                    stroke: color,
-                    strokeWidth,
-                    fill: 'none',
-                    strokeDasharray: circumference,
-                    strokeDashoffset: offset,
-                    strokeLinecap: 'round',
-                    style: { transition: 'stroke-dashoffset 0.5s ease' }
-                })
-            ),
-            React.createElement('div', { className: 'absolute inset-0 flex items-center justify-center' },
-                children || React.createElement('div', { className: 'text-center' },
-                    React.createElement('span', { className: 'text-4xl font-bold theme-text-primary' }, percentage),
-                    React.createElement('span', { className: 'text-xl theme-text-secondary' }, '%')
-                )
-            )
-        );
-    }
-    
-    // Placeholder for new detailed HistoryView
-    function HistoryView({ habits, archivedHabits, handleHabitUpdate, onDeleteHabit }) {
-        // This is a simplified version. A full implementation would be more complex.
-        return React.createElement('div', { className: 'space-y-6' },
-            React.createElement('h1', { className: 'text-2xl font-bold theme-text-primary' }, 'Historie a Analytika'),
-            
-            React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4' },
-                React.createElement('h3', { className: 'font-bold mb-2' }, 'Denní návyky - Kalendář'),
-                React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Zde bude vizualizace denních návyků formou heatmap kalendáře.')
-            ),
-            React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4' },
-                React.createElement('h3', { className: 'font-bold mb-2' }, 'Týdenní návyky - Přehled'),
-                React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Zde bude graf plnění týdenních cílů v čase.')
-            ),
-            React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4' },
-                React.createElement('h3', { className: 'font-bold mb-2' }, 'Měsíční návyky - Report'),
-                React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Zde bude měsíční report plnění dlouhodobých cílů.')
-            ),
-            
-            React.createElement('div', { className: 'mt-8' },
-              React.createElement('h2', { className: 'text-xl font-bold mb-4' }, 'Archivované návyky'),
-              archivedHabits.length > 0 ?
-                React.createElement('div', { className: 'space-y-3' }, 
-                  archivedHabits.map(habit => React.createElement('div', { key: habit.id, className: 'theme-bg-secondary rounded-3xl p-4 flex justify-between items-center' },
-                    React.createElement('span', { className: 'theme-text-tertiary' }, habit.name),
-                    React.createElement('div', { className: 'space-x-2' },
-                      React.createElement('button', { onClick: () => handleHabitUpdate(habit.id, { archived: false }), className: 'px-3 py-1 text-sm theme-accent-bg text-white rounded-full' }, 'Obnovit'),
-                      React.createElement('button', { onClick: () => onDeleteHabit(habit.id), className: 'px-3 py-1 text-sm bg-red-500 text-white rounded-full' }, 'Smazat')
-                    )
-                  ))
-                ) : React.createElement('p', { className: 'theme-text-secondary' }, 'Žádné archivované návyky.')
-            )
-        );
-    }
-
-    function SettingsView({ theme, setTheme, onBack }) {
-        return React.createElement('div', { className: 'space-y-6' },
-            React.createElement('header', { className: 'flex items-center mb-6' },
-                React.createElement('button', { onClick: onBack, className: 'w-10 h-10 theme-bg-secondary rounded-full mr-4' }, '←'),
-                React.createElement('h1', { className: 'text-2xl font-bold' }, 'Nastavení')
-            ),
-            React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4' },
-                React.createElement('h3', { className: 'font-bold mb-4' }, 'Vzhled aplikace'),
-                React.createElement('div', { className: 'flex space-x-2' },
-                    React.createElement('button', { 
-                        onClick: () => setTheme('light'),
-                        className: `flex-1 py-3 rounded-full font-semibold ${theme === 'light' ? 'theme-accent-bg text-white' : 'theme-bg-tertiary'}`
-                    }, 'Světlý'),
-                    React.createElement('button', { 
-                        onClick: () => setTheme('dark'),
-                        className: `flex-1 py-3 rounded-full font-semibold ${theme === 'dark' ? 'theme-accent-bg text-white' : 'theme-bg-tertiary'}`
-                    }, 'Tmavý')
-                )
-            ),
-            React.createElement('div', { className: 'theme-bg-secondary rounded-3xl p-4 text-center theme-text-secondary text-sm' },
-                'Habito App v1.0'
-            )
-        );
-    }
-    
-    function AddHabitView({ habit, onAddHabit, onUpdateHabit, onBack }) {
-        const [name, setName] = useState(habit?.name || '');
-        const [icon, setIcon] = useState(habit?.icon || '🎯');
-        const [color, setColor] = useState(habit?.color || '#7B68EE');
-        const [goal, setGoal] = useState(habit?.goal || 1);
-        const [frequency, setFrequency] = useState(habit?.frequency || 'daily');
-        
-        const isEditing = !!habit;
-
-        const handleSubmit = () => {
-            const habitData = { name, icon, color, goal, frequency };
-            if (isEditing) {
-                onUpdateHabit(habitData);
-            } else {
-                onAddHabit(habitData);
-            }
-        };
-        
-        return React.createElement('div', null,
-            React.createElement('header', { className: 'flex justify-between items-center mb-6' },
-                React.createElement('button', { onClick: onBack, className: 'w-12 h-12 theme-bg-secondary rounded-full flex items-center justify-center text-xl' }, '←'),
-                React.createElement('h1', { className: 'text-xl font-bold' }, isEditing ? 'Upravit návyk' : 'Nový návyk'),
-                React.createElement('button', { 
-                    onClick: handleSubmit,
-                    disabled: !name.trim(),
-                    className: 'w-12 h-12 theme-accent-bg text-white rounded-full flex items-center justify-center text-xl disabled:opacity-50'
-                }, '✓')
-            ),
-            React.createElement('div', { className: 'space-y-4' },
-                // ... Form fields for name, icon, color, goal, frequency ...
-                // This part is simplified for brevity but would contain all form elements
-                React.createElement('input', {
-                    type: 'text',
-                    value: name,
-                    onChange: e => setName(e.target.value),
-                    placeholder: 'Např. Číst knihu',
-                    className: 'w-full theme-bg-secondary rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 ring-[var(--accent)]'
-                }),
-                // Icon & Color Picker
-                React.createElement('div', { className: 'theme-bg-secondary rounded-2xl p-4' },
-                    React.createElement('h3', {className: 'text-sm theme-text-secondary mb-2'}, 'Barva & Ikona'),
-                    React.createElement('div', { className: 'flex items-center space-x-2' },
-                        React.createElement('div', { 
-                            className: 'w-12 h-12 rounded-full flex items-center justify-center text-2xl',
-                            style: { backgroundColor: color + '33' }
-                        }, icon),
-                        React.createElement('div', { className: 'flex-1 grid grid-cols-6 gap-2' },
-                            COLORS.map(c => React.createElement('button', { key: c, onClick: () => setColor(c), className: `w-8 h-8 rounded-full ${color === c ? 'ring-2 ring-offset-2 ring-offset-[var(--bg-secondary)] ring-[var(--accent)]' : ''}`, style:{backgroundColor: c}}))
-                        )
-                    ),
-                    React.createElement('div', { className: 'grid grid-cols-8 gap-2 mt-4' },
-                        EMOJI_ICONS.map(i => React.createElement('button', { key: i, onClick: () => setIcon(i), className: `w-10 h-10 rounded-full flex items-center justify-center text-2xl ${icon === i ? 'theme-bg-tertiary' : 'theme-bg-secondary'}` }, i))
-                    )
+                    React.createElement('p', { className: 'font-semibold' }, habit.name),
+                    React.createElement('p', { className: 'text-sm theme-text-secondary' }, `Cíl: ${progress} / ${habit.goal}`)
                 ),
-                // Goal and Frequency
-                React.createElement('div', { className: 'theme-bg-secondary rounded-2xl p-4' },
-                  React.createElement('div', { className: 'flex justify-between items-center' },
-                    React.createElement('span', null, 'Cíl'),
-                    React.createElement('div', { className: 'flex items-center space-x-2' },
-                      React.createElement('button', { onClick: () => setGoal(Math.max(1, goal-1)), className: 'w-10 h-10 theme-bg-tertiary rounded-full' }, '-'),
-                      React.createElement('span', { className: 'w-12 text-center font-semibold' }, goal),
-                      React.createElement('button', { onClick: () => setGoal(goal+1), className: 'w-10 h-10 theme-bg-tertiary rounded-full' }, '+')
-                    )
-                  ),
-                  React.createElement('hr', { className: 'my-3 theme-border'}),
-                  React.createElement('select', {
-                      value: frequency,
-                      onChange: e => setFrequency(e.target.value),
-                      className: 'w-full theme-bg-secondary focus:outline-none'
-                    },
-                    React.createElement('option', {value: 'daily'}, 'Denní cíl'),
-                    React.createElement('option', {value: 'weekly'}, 'Týdenní cíl'),
-                    React.createElement('option', {value: 'monthly'}, 'Měsíční cíl')
+                React.createElement('div', { className: 'relative' },
+                  React.createElement('button', { onClick: () => setShowMenu(!showMenu), className: 'w-8 h-8 rounded-lg theme-bg-tertiary flex items-center justify-center' }, '•••'),
+                  showMenu && React.createElement('div', { className: 'absolute right-0 top-10 mt-1 w-40 theme-bg-secondary border theme-border rounded-lg shadow-xl z-20' },
+                    React.createElement('a', { onClick: () => { openModal('edit', habit); setShowMenu(false); }, className: 'block px-4 py-2 text-sm theme-text-primary hover:theme-bg-tertiary cursor-pointer' }, 'Upravit'),
+                    React.createElement('a', { onClick: () => { openModal('history', habit); setShowMenu(false); }, className: 'block px-4 py-2 text-sm theme-text-primary hover:theme-bg-tertiary cursor-pointer' }, 'Historie'),
+                    React.createElement('a', { onClick: () => { dbAction('UPDATE', { id: habit.id, data: { archived: true } }); setShowMenu(false); }, className: 'block px-4 py-2 text-sm theme-text-primary hover:theme-bg-tertiary cursor-pointer' }, 'Archivovat')
                   )
                 )
             )
         );
     }
+
+    function ProgressCircle({ percentage, size = 120, strokeWidth = 10 }) {
+        const radius = (size / 2) - (strokeWidth * 2);
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference * (1 - percentage / 100);
+        return React.createElement('div', { className: 'relative', style: { width: size, height: size } },
+            React.createElement('svg', { className: 'transform -rotate-90', width: size, height: size },
+                React.createElement('circle', { cx: size/2, cy: size/2, r: radius, stroke: 'var(--bg-tertiary)', strokeWidth, fill: 'none' }),
+                React.createElement('circle', { 
+                    cx: size/2, cy: size/2, r: radius, stroke: 'var(--accent)', strokeWidth, fill: 'none',
+                    strokeDasharray: circumference, strokeDashoffset: offset, strokeLinecap: 'round',
+                    style: { transition: 'stroke-dashoffset 0.5s ease' }
+                })
+            ),
+            React.createElement('div', { className: 'absolute inset-0 flex items-center justify-center' },
+                React.createElement('span', { className: 'text-2xl font-bold theme-text-primary' }, `${percentage}%`)
+            )
+        );
+    }
     
+    // --- MODALS ---
+    function Modal({ children, onClose, title }) {
+        return React.createElement('div', { className: 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4', onClick: onClose },
+            React.createElement('div', { className: 'w-full max-w-md theme-bg-secondary rounded-xl shadow-2xl p-6', onClick: e => e.stopPropagation() },
+                React.createElement('header', { className: 'flex justify-between items-center mb-4' },
+                    React.createElement('h2', { className: 'text-xl font-bold' }, title),
+                    React.createElement('button', { onClick: onClose, className: 'w-8 h-8 theme-bg-tertiary rounded-full flex items-center justify-center font-bold' }, '×')
+                ),
+                children
+            )
+        );
+    }
+
+    function HabitFormModal({ onClose, dbAction, habit }) {
+        const [formData, setFormData] = useState({
+            name: habit?.name || '', icon: habit?.icon || '🎯', color: habit?.color || '#0052ff',
+            goal: habit?.goal || 1, frequency: habit?.frequency || 'daily'
+        });
+        const handleChange = (key, value) => setFormData(prev => ({ ...prev, [key]: value }));
+
+        const handleSubmit = () => {
+            if (!formData.name.trim()) return;
+            const action = habit ? 'UPDATE' : 'ADD';
+            const payload = habit ? { id: habit.id, data: formData } : formData;
+            dbAction(action, payload);
+            onClose();
+        };
+
+        return React.createElement(Modal, { onClose, title: habit ? 'Upravit návyk' : 'Nový návyk' },
+            React.createElement('div', { className: 'space-y-4' },
+                React.createElement('input', { type: 'text', placeholder: 'Název návyku...', value: formData.name, onChange: e => handleChange('name', e.target.value), className: 'w-full theme-bg-tertiary rounded-lg px-4 py-3 focus:outline-none' }),
+                React.createElement('div', { className: 'theme-bg-tertiary rounded-lg p-3 space-y-3' },
+                    React.createElement('div', { className: 'flex justify-around' }, COLORS.map(c => React.createElement('button', { key: c, onClick: () => handleChange('color', c), className: `w-8 h-8 rounded-full ${formData.color === c ? 'ring-2 ring-offset-2 ring-[var(--accent)] ring-offset-[var(--bg-tertiary)]' : ''}`, style: { backgroundColor: c } }))),
+                    React.createElement('div', { className: 'flex flex-wrap justify-center gap-2' }, EMOJI_ICONS.map(i => React.createElement('button', { key: i, onClick: () => handleChange('icon', i), className: `w-10 h-10 rounded-lg text-xl ${formData.icon === i ? 'theme-bg-secondary' : 'hover:theme-bg-secondary'}` }, i)))
+                ),
+                React.createElement('div', { className: 'theme-bg-tertiary rounded-lg p-3 flex justify-between items-center' },
+                    React.createElement('label', { className: 'font-medium' }, 'Cíl'),
+                    React.createElement('div', { className: 'flex items-center space-x-2' },
+                        React.createElement('button', { onClick: () => handleChange('goal', Math.max(1, formData.goal - 1)), className: 'w-8 h-8 theme-bg-secondary rounded-md font-bold' }, '-'),
+                        React.createElement('span', { className: 'w-10 text-center font-semibold' }, formData.goal),
+                        React.createElement('button', { onClick: () => handleChange('goal', formData.goal + 1), className: 'w-8 h-8 theme-bg-secondary rounded-md font-bold' }, '+')
+                    )
+                ),
+                React.createElement('select', { value: formData.frequency, onChange: e => handleChange('frequency', e.target.value), className: 'w-full theme-bg-tertiary rounded-lg px-4 py-3 focus:outline-none' },
+                    React.createElement('option', { value: 'daily' }, 'Denně'),
+                    React.createElement('option', { value: 'weekly' }, 'Týdně'),
+                    React.createElement('option', { value: 'monthly' }, 'Měsíčně')
+                ),
+                React.createElement('button', { onClick: handleSubmit, className: 'w-full theme-accent-bg text-white font-bold py-3 rounded-lg' }, habit ? 'Uložit změny' : 'Vytvořit návyk')
+            )
+        );
+    }
+    
+    function HistoryModal({ onClose, habit }) {
+        let analyticsComponent;
+        switch (habit.frequency) {
+            case 'daily': analyticsComponent = React.createElement(CalendarHeatmap, { habit }); break;
+            case 'weekly': analyticsComponent = React.createElement(WeeklyBarChart, { habit }); break;
+            case 'monthly': analyticsComponent = React.createElement(MonthlySummary, { habit }); break;
+            default: analyticsComponent = React.createElement('p', null, 'Není dostupná analytika.');
+        }
+        return React.createElement(Modal, { onClose, title: `Historie: ${habit.name}` }, analyticsComponent);
+    }
+
+    // --- ANALYTICS COMPONENTS ---
+    function CalendarHeatmap({ habit }) {
+        const data = useMemo(() => {
+            const map = new Map();
+            const today = new Date();
+            // Go back 1 year for the full view
+            for (let i = 0; i < 365; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const dateStr = getDateString(date);
+                const progress = habit.progress?.[dateStr] || 0;
+                const percentage = habit.goal > 0 ? (progress / habit.goal) * 100 : 0;
+                map.set(dateStr, { progress, percentage });
+            }
+            return map;
+        }, [habit.progress, habit.goal]);
+
+        const getOpacity = (percentage) => {
+            if (percentage <= 0) return 0.1;
+            if (percentage < 25) return 0.3;
+            if (percentage < 50) return 0.5;
+            if (percentage < 75) return 0.7;
+            if (percentage < 100) return 0.9;
+            return 1;
+        };
+        
+        const days = Array.from(data.keys()).reverse();
+
+        return React.createElement('div', { className: 'space-y-2' },
+            React.createElement('h3', { className: 'font-semibold' }, 'Přehled aktivity za poslední rok'),
+            React.createElement('div', { className: 'grid grid-cols-7 md:grid-cols-14 lg:grid-cols-20 grid-flow-col-dense gap-1' },
+                days.map(dayStr => {
+                    const dayData = data.get(dayStr);
+                    const tooltip = `${dayStr}: ${dayData.progress}/${habit.goal}`;
+                    return React.createElement('div', {
+                        key: dayStr,
+                        'data-tooltip': tooltip,
+                        className: 'w-4 h-4 rounded-sm',
+                        style: {
+                            backgroundColor: 'var(--accent)',
+                            opacity: getOpacity(dayData.percentage)
+                        }
+                    });
+                })
+            )
+        );
+    }
+    
+    function WeeklyBarChart({ habit }) {
+        const data = useMemo(() => {
+            const weeks = {};
+            if (!habit.progress) return [];
+            Object.entries(habit.progress).forEach(([dateStr, progress]) => {
+                const weekId = getWeekId(new Date(dateStr));
+                weeks[weekId] = (weeks[weekId] || 0) + progress;
+            });
+            return Object.entries(weeks)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .slice(-8) // Last 8 weeks
+                .map(([weekId, progress]) => ({
+                    weekId,
+                    progress,
+                    percentage: Math.min(100, Math.round((progress / habit.goal) * 100))
+                }));
+        }, [habit.progress, habit.goal]);
+
+        return React.createElement('div', { className: 'space-y-3' },
+            React.createElement('h3', { className: 'font-semibold' }, 'Plnění za posledních 8 týdnů'),
+            React.createElement('div', { className: 'flex justify-around items-end h-48 p-2 theme-bg-tertiary rounded-lg' },
+                data.length > 0 ? data.map(({ weekId, percentage }) => 
+                    React.createElement('div', { key: weekId, className: 'flex-1 flex flex-col items-center justify-end mx-1' },
+                        React.createElement('div', {
+                            'data-tooltip': `${percentage}%`,
+                            className: 'w-full rounded-t-md theme-accent-bg',
+                            style: { height: `${percentage}%`, minHeight: '4px' }
+                        }),
+                        React.createElement('p', { className: 'text-xs theme-text-secondary mt-1' }, weekId.split('-')[1])
+                    )
+                ) : React.createElement('p', { className: 'w-full text-center theme-text-secondary' }, 'Žádná data k zobrazení.')
+            )
+        );
+    }
+
+    function MonthlySummary({ habit }) {
+        const data = useMemo(() => {
+            if (!habit.progress) return {};
+            const currentMonthId = getMonthId(new Date());
+            const monthProgress = Object.entries(habit.progress)
+                .filter(([d]) => getMonthId(new Date(d)) === currentMonthId);
+            
+            const total = monthProgress.reduce((sum, [, p]) => sum + p, 0);
+            const daysCompleted = monthProgress.filter(([,p]) => p >= (habit.goal / 30)).length; // Simplified daily goal
+            const bestDay = monthProgress.reduce((max, [d, p]) => p > max.p ? {d, p} : max, {d:null, p:0});
+
+            return {
+                total,
+                percentage: Math.min(100, Math.round((total / habit.goal) * 100)),
+                daysCompleted,
+                bestDay: bestDay.d ? `${bestDay.d} (${bestDay.p})` : 'N/A'
+            };
+        }, [habit.progress, habit.goal]);
+        
+        return React.createElement('div', { className: 'space-y-3' },
+            React.createElement('h3', { className: 'font-semibold' }, `Shrnutí za tento měsíc`),
+            React.createElement('div', { className: 'p-4 theme-bg-tertiary rounded-lg grid grid-cols-2 gap-4' },
+                React.createElement('div', null,
+                    React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Celkový Pokrok'),
+                    React.createElement('p', { className: 'text-2xl font-bold' }, `${data.total} / ${habit.goal}`)
+                ),
+                React.createElement('div', null,
+                    React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Splněno'),
+                    React.createElement('p', { className: 'text-2xl font-bold' }, `${data.percentage}%`)
+                ),
+                React.createElement('div', null,
+                    React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Počet dní se záznamem'),
+                    React.createElement('p', { className: 'text-2xl font-bold' }, data.daysCompleted)
+                ),
+                React.createElement('div', null,
+                    React.createElement('p', { className: 'text-sm theme-text-secondary' }, 'Nejlepší den'),
+                    React.createElement('p', { className: 'text-lg font-bold' }, data.bestDay)
+                )
+            )
+        );
+    }
+    
+    // --- NAVIGATION ---
     function BottomNav({ view, setView }) {
-      const navItems = [
-        { id: 'home', icon: '🏠', label: 'Domů' },
-        { id: 'history', icon: '📊', label: 'Historie' },
-        { id: 'settings', icon: '⚙️', label: 'Nastavení' },
-      ];
-      return React.createElement('nav', { className: 'fixed bottom-0 left-0 right-0 theme-bg-secondary shadow-lg rounded-t-3xl pb-safe' },
-        React.createElement('div', { className: 'max-w-2xl mx-auto px-6 py-3 flex justify-around items-center' },
+      const navItems = [{ id: 'home', icon: '🏠', label: 'Návyky' }];
+      return React.createElement('nav', { className: 'fixed bottom-0 left-0 right-0 theme-bg-secondary shadow-lg rounded-t-2xl pb-safe' },
+        React.createElement('div', { className: 'max-w-xl mx-auto px-6 py-2.5 flex justify-around items-center' },
           navItems.map(item => 
-            React.createElement('button', {
-              key: item.id,
-              onClick: () => setView(item.id),
-              className: 'flex flex-col items-center space-y-1'
-            },
+            React.createElement('button', { key: item.id, onClick: () => setView(item.id), className: 'flex flex-col items-center space-y-1' },
               React.createElement('div', { className: 'text-2xl' }, item.icon),
-              React.createElement('span', {
-                className: `text-xs font-medium transition-colors ${view === item.id ? 'theme-accent' : 'theme-text-secondary'}`
-              }, item.label)
+              React.createElement('span', { className: `text-xs font-medium transition-colors ${view === item.id ? 'theme-accent' : 'theme-text-secondary'}` }, item.label)
             )
           )
         )
       );
     }
-
+    
     const root = createRoot(document.getElementById('root'));
     root.render(React.createElement(HabitsTracker));
   </script>
